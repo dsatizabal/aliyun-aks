@@ -1,0 +1,135 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: aliyun-scheduler-service-account
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aliyun-scheduler-as-kube-scheduler
+subjects:
+- kind: ServiceAccount
+  name: aliyun-scheduler-service-account
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:kube-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: aliyun-scheduler-as-volume-scheduler
+subjects:
+- kind: ServiceAccount
+  name: aliyun-scheduler-service-account
+  namespace: kube-system
+roleRef:
+  kind: ClusterRole
+  name: system:volume-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: aliyun-scheduler-extension-apiserver-authentication-reader
+  namespace: kube-system
+roleRef:
+  kind: Role
+  name: extension-apiserver-authentication-reader
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: ServiceAccount
+  name: aliyun-scheduler-service-account
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aliyun-scheduler-config
+  namespace: kube-system
+data:
+  aliyun-scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1beta3
+    kind: KubeSchedulerConfiguration
+    profiles:
+      - schedulerName: aliyun
+    leaderElection:
+      leaderElect: false
+    extenders:
+    - bindVerb: bind
+      enableHTTPS: false
+      filterVerb: filter
+      ignorable: false
+      managedResources:
+      - ignoredByScheduler: false
+        name: aliyun.com/gpu-mem
+      nodeCacheCapable: true
+      urlPrefix: http://127.0.0.1:32766/gpushare-scheduler
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    component: scheduler
+    tier: control-plane
+  name: aliyun-scheduler
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      component: scheduler
+      tier: control-plane
+  replicas: 1
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        component: scheduler
+        tier: control-plane
+      name: kube-scheduler
+      namespace: kube-system
+    spec:
+      serviceAccountName: aliyun-scheduler-service-account
+      containers:
+      - command:
+        - kube-scheduler
+        - --config=/etc/kubernetes/scheduler-config/aliyun-scheduler-config.yaml
+        - -v=4
+        image: registry.k8s.io/kube-scheduler:v1.24.4
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 8
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 15
+        name: kube-scheduler
+        resources:
+          requests:
+            cpu: 100m
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 15
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/kubernetes/scheduler-config
+      hostNetwork: true
+      priorityClassName: system-node-critical
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: config-volume
+          configMap:
+            name: aliyun-scheduler-config

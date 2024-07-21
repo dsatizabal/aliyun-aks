@@ -1,0 +1,16 @@
+apiVersion: kubescheduler.config.k8s.io/v1beta3
+kind: KubeSchedulerConfiguration
+profiles:
+  - schedulerName: aliyun
+leaderElection:
+  leaderElect: false
+extenders:
+- bindVerb: bind
+  enableHTTPS: false
+  filterVerb: filter
+  ignorable: false
+  managedResources:
+  - ignoredByScheduler: false
+    name: aliyun.com/gpu-mem
+  nodeCacheCapable: true
+  urlPrefix: http://127.0.0.1:32766/gpushare-scheduler
